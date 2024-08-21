@@ -1,0 +1,10 @@
+[package]
+name = "tantivy_exploration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+error-chain = "0.12.4"
+pdf-extract = "0.7.7"
+tantivy = "0.22.0"
+tempfile = "3.12.0"
