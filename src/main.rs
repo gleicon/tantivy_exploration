@@ -1,17 +1,13 @@
 use error_chain::error_chain;
+use std::error::Error;
 use std::fs;
+use std::io;
+use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexWriter, ReloadPolicy};
 use tempfile::TempDir;
-
-error_chain! {
-    foreign_links {
-        Io(std::io::Error);
-        SystemTimeError(std::time::SystemTimeError);
-    }
-}
 
 fn main() -> tantivy::Result<()> {
     let index_path = TempDir::new()?;
@@ -95,7 +91,7 @@ fn index_all_pdfs(
     title: tantivy::schema::Field,
     body: tantivy::schema::Field,
     index_writer: &mut tantivy::IndexWriter,
-) -> Result<()> {
+) -> io::Result<()> {
     //let current_dir = env::current_dir()?;
 
     for entry in fs::read_dir("/Users/gleicon/Downloads")? {
@@ -109,35 +105,67 @@ fn index_all_pdfs(
         // if is a file andends with pdf:w
 
         if metadata.is_file() {
-            if let Some(p) = path.extension() {
-                let fname = path.file_name().ok_or("No filename")?;
-                if p.eq_ignore_ascii_case("pdf") {
-                    println!(
-                    "Last modified: {:?} seconds, is read only: {:?}, size: {:?} bytes, filename: {:?}",
-                    last_modified,
-                    metadata.permissions().readonly(),
-                    metadata.len(),
-                    fname
-                );
-                    let bytes = std::fs::read(path.clone()).unwrap();
-                    match pdf_extract::extract_text_from_mem(&bytes) {
-                        Ok(out) => {
-                            let mut le_doc = TantivyDocument::default();
-                            le_doc.add_text(title, fname.to_str().unwrap_or(""));
-                            le_doc.add_text(body, out);
-                            let _ = index_writer.add_document(le_doc);
+            match path.extension() {
+                Some(p) => {
+                    let fname = path.file_name().ok_or("No filename")?;
+                    if p.eq_ignore_ascii_case("pdf") {
+                        println!(
+                        "Last modified: {:?} seconds, is read only: {:?}, size: {:?} bytes, filename: {:?}",
+                        last_modified,
+                        metadata.permissions().readonly(),
+                        metadata.len(),
+                        fname
+                    );
 
-                            let _ = index_writer.commit();
+                        match parse_pdf(path.clone()) {
+                            Ok(out) => {
+                                let mut le_doc = TantivyDocument::default();
+                                le_doc.add_text(title, fname.to_str().unwrap_or(""));
+                                le_doc.add_text(body, out.join(" "));
+                                let _ = index_writer.add_document(le_doc);
 
-                            //println!("{:?}", out[0..10].to_string())
+                                let _ = index_writer.commit();
+                                // return Ok(());
+
+                                //println!("{:?}", out[0..10].to_string())
+                            }
+                            Err(e) => {
+                                println!("Error {:?}", e);
+                                return Err(e);
+                            }
                         }
-                        Err(e) => println!("{:?}", e),
+                        //let out = pdf_extract::extract_text_from_mem(&bytes);
                     }
-                    //let out = pdf_extract::extract_text_from_mem(&bytes);
+                    //   Ok(())
                 }
+                None => Err("oi"),
+            }
+        }
+        return Ok(());
+    }
+
+    fn parse_pdf(file: PathBuf) -> Result<Vec<String>, std::io::Error> {
+        match lopdf::Document::load(file) {
+            Ok(document) => {
+                let pages = document.get_pages();
+                let mut texts = Vec::new();
+
+                for (i, _) in pages.iter().enumerate() {
+                    let page_number = (i + 1) as u32;
+                    let text = document.extract_text(&[page_number]);
+                    texts.push(text.unwrap_or_default());
+                }
+
+                println!("Text on page {}: {}", 42, texts[41]);
+                Ok(texts)
+            }
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                return Err(io::Error::new(io::ErrorKind::InvalidData, err.into()));
+                //Err(err.into());
+                //                return Err(*Box::from(io::Error::new(err.to_string()))); //Err(err.into());
             }
         }
     }
-
     Ok(())
 }
