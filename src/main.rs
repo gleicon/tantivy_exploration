@@ -98,7 +98,7 @@ fn index_all_pdfs(
         let entry = entry?;
         let path = entry.path();
         let metadata = fs::metadata(&path)?;
-        let last_modified = metadata.modified()?.elapsed()?.as_secs();
+        //  let last_modified = metadata.modified()?.elapsed()?.as_secs();
         //println!("{:?}", path);
 
         // last_modified < 24 * 3600 &&  to index recent files
@@ -107,20 +107,19 @@ fn index_all_pdfs(
         if metadata.is_file() {
             match path.extension() {
                 Some(p) => {
-                    let fname = path.file_name().ok_or("No filename")?;
+                    let fname = path.file_name().ok_or(());
                     if p.eq_ignore_ascii_case("pdf") {
                         println!(
-                        "Last modified: {:?} seconds, is read only: {:?}, size: {:?} bytes, filename: {:?}",
-                        last_modified,
-                        metadata.permissions().readonly(),
-                        metadata.len(),
-                        fname
-                    );
+                            " is read only: {:?}, size: {:?} bytes, filename: {:?}",
+                            metadata.permissions().readonly(),
+                            metadata.len(),
+                            fname
+                        );
 
                         match parse_pdf(path.clone()) {
                             Ok(out) => {
                                 let mut le_doc = TantivyDocument::default();
-                                le_doc.add_text(title, fname.to_str().unwrap_or(""));
+                                le_doc.add_text(title, fname?.to_str().unwrap_or(""));
                                 le_doc.add_text(body, out.join(" "));
                                 let _ = index_writer.add_document(le_doc);
 
@@ -138,7 +137,7 @@ fn index_all_pdfs(
                     }
                     //   Ok(())
                 }
-                None => Err("oi"),
+                None => (),
             }
         }
         return Ok(());
@@ -161,7 +160,11 @@ fn index_all_pdfs(
             }
             Err(err) => {
                 eprintln!("Error: {}", err);
-                return Err(io::Error::new(io::ErrorKind::InvalidData, err.into()));
+                //return Err(io::Error::new(io::ErrorKind::InvalidData, err.into()));
+                return Err(*Box::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "your message here",
+                )));
                 //Err(err.into());
                 //                return Err(*Box::from(io::Error::new(err.to_string()))); //Err(err.into());
             }
