@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 error-chain = "0.12.4"
+glob = "0.3.1"
 lopdf = { version = "0.33.0", features = ["pom", "pom_parser"] }
 pdf-extract = "0.7.7"
 tantivy = "0.22.0"
