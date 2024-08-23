@@ -18,7 +18,7 @@ fn main() -> tantivy::Result<()> {
     let index_path = TempDir::new()?;
     let mut schema_builder = Schema::builder();
     schema_builder.add_text_field("title", TEXT | STORED);
-    schema_builder.add_text_field("body", TEXT);
+    schema_builder.add_text_field("body", TEXT | STORED);
     let schema = schema_builder.build();
     let index = Index::create_in_dir(&index_path, schema.clone())?;
     let mut index_writer: IndexWriter = index.writer(50_000_000)?;
@@ -47,15 +47,15 @@ fn main() -> tantivy::Result<()> {
 
     //let query = query_parser.parse_query("title:sea^20 body:whale^70")?;
 
-    //let (_score, doc_address) = searcher
-    //    .search(&query, &TopDocs::with_limit(1))?
-    //    .into_iter()
-    //   .next()
-    // .unwrap();
+    // let (_score, doc_address) = searcher
+    //     .search(&query, &TopDocs::with_limit(1))?
+    //     .into_iter()
+    //     .next()
+    //     .unwrap();
 
-    //let explanation = query.explain(&searcher, doc_address)?;
+    // let explanation = query.explain(&searcher, doc_address)?;
 
-    //println!("{}", explanation.to_pretty_json());
+    // println!("{}", explanation.to_pretty_json());
 
     Ok(())
 }
@@ -65,7 +65,6 @@ fn index_all_pdfs(
     body: tantivy::schema::Field,
     index_writer: &mut tantivy::IndexWriter,
 ) -> Result<String> {
-    //let current_dir = env::current_dir()?;
     let options = MatchOptions {
         case_sensitive: false,
         ..Default::default()
@@ -85,17 +84,17 @@ fn index_all_pdfs(
                         let _ = index_writer.add_document(le_doc);
 
                         let _ = index_writer.commit();
-                        return Ok("Parsed".into());
+                        //return Ok("Parsed".into());
                     }
                     Err(e) => {
                         println!("Error Parsing {:?}", e);
-                        return Err(e);
+                        //return Err(e);
                     }
                 }
                 // parse
             }
-            Err(e) => {
-                println!("Error {}", e);
+            Err(_e) => {
+                //println!("Error {}", e);
                 ()
             }
         }
@@ -116,7 +115,7 @@ fn parse_pdf(file: PathBuf) -> Result<Vec<String>> {
                 texts.push(text.unwrap_or_default());
             }
 
-            println!("Text on page {}: {}", 42, texts[41]);
+            //println!("Text on page {}: {}", 42, texts[41]);
             Ok(texts)
         }
         Err(e) => {
