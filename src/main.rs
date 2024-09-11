@@ -1,5 +1,6 @@
 use error_chain::error_chain;
 use glob::{glob_with, MatchOptions};
+use std::fs;
 use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
@@ -15,12 +16,17 @@ error_chain! {
 }
 
 fn main() -> tantivy::Result<()> {
-    let index_path = TempDir::new()?;
+    let index_path = "nom_index";
+
+    fs::create_dir_all(index_path)?;
+    let index_directory = tantivy::directory::MmapDirectory::open(index_path)?;
+
     let mut schema_builder = Schema::builder();
     schema_builder.add_text_field("title", TEXT | STORED);
     schema_builder.add_text_field("body", TEXT | STORED);
     let schema = schema_builder.build();
-    let index = Index::create_in_dir(&index_path, schema.clone())?;
+    let index = Index::open_or_create(index_directory, schema.clone())?;
+
     let mut index_writer: IndexWriter = index.writer(50_000_000)?;
 
     let title = schema.get_field("title").unwrap();
