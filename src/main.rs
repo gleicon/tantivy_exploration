@@ -1,11 +1,12 @@
 use error_chain::error_chain;
 use glob::{glob_with, MatchOptions};
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexWriter, ReloadPolicy};
-use tempfile::TempDir;
 
 error_chain! {
     foreign_links {
@@ -15,19 +16,45 @@ error_chain! {
 }
 
 fn main() -> tantivy::Result<()> {
-    let index_path = TempDir::new()?;
+    let index_path = PathBuf::from("./tantivy_pdf_index");
     let mut schema_builder = Schema::builder();
     schema_builder.add_text_field("title", TEXT | STORED);
     schema_builder.add_text_field("body", TEXT | STORED);
     let schema = schema_builder.build();
-    let index = Index::create_in_dir(&index_path, schema.clone())?;
+
+    // Check if the index already exists
+    let index = if Path::new(&index_path).exists() {
+        println!("Index already exists, opening existing index");
+        Index::open_in_dir(&index_path)?
+    } else {
+        println!("Index does not exist, creating new index");
+        fs::create_dir(index_path.clone())?;
+        Index::create_in_dir(&index_path, schema.clone())?
+    };
+
     let mut index_writer: IndexWriter = index.writer(50_000_000)?;
 
     let title = schema.get_field("title").unwrap();
     let body = schema.get_field("body").unwrap();
+    // Check if the index is empty
+    let reader = index.reader()?;
+    let searcher = reader.searcher();
 
-    let _ = index_all_pdfs(title, body, &mut index_writer);
+    if searcher.num_docs() == 0 {
+        println!("Index is empty. Indexing PDFs...");
+        let _ = index_all_pdfs(title, body, &mut index_writer);
+        index_writer.commit()?;
+    } else {
+        println!("Index already contains {} documents", searcher.num_docs());
+    }
 
+    // Only index PDFs if the index is newly created
+    if !Path::new(&index_path).exists() {
+        println!("Indexing PDFs");
+        let _ = index_all_pdfs(title, body, &mut index_writer);
+    }
+
+    println!("Searching");
     let reader = index
         .reader_builder()
         .reload_policy(ReloadPolicy::OnCommitWithDelay)
@@ -37,25 +64,24 @@ fn main() -> tantivy::Result<()> {
 
     let query_parser = QueryParser::for_index(&index, vec![title, body]);
 
-    let query = query_parser.parse_query("linux")?;
+    // let query = query_parser.parse_query("linux")?;
 
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(10))?;
-    for (_score, doc_address) in top_docs {
-        let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-        println!("{}", retrieved_doc.to_json(&schema));
+    // let top_docs = searcher.search(&query, &TopDocs::with_limit(10))?;
+    // for (_score, doc_address) in top_docs {
+    //     let _retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
+    //     //   println!("{:<10}", retrieved_doc.to_json(&schema));
+    // }
+
+    let query = query_parser.parse_query("title:timeseries^20 body:median^70")?;
+
+    let search_results = searcher.search(&query, &TopDocs::with_limit(1))?;
+
+    if let Some((_score, doc_address)) = search_results.into_iter().next() {
+        let explanation = query.explain(&searcher, doc_address)?;
+        println!("{}", explanation.to_pretty_json());
+    } else {
+        println!("No results found for the given query.");
     }
-
-    //let query = query_parser.parse_query("title:sea^20 body:whale^70")?;
-
-    // let (_score, doc_address) = searcher
-    //     .search(&query, &TopDocs::with_limit(1))?
-    //     .into_iter()
-    //     .next()
-    //     .unwrap();
-
-    // let explanation = query.explain(&searcher, doc_address)?;
-
-    // println!("{}", explanation.to_pretty_json());
 
     Ok(())
 }
