@@ -1,17 +1,13 @@
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpServer};
 use error_chain::error_chain;
 use glob::{glob_with, MatchOptions};
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
-use tantivy::tokenizer::TokenizerManager;
-use tantivy::Snippet;
-use tantivy::SnippetGenerator;
 
+mod autosuggest;
 use tantivy::{doc, Index, IndexWriter, ReloadPolicy};
 
 error_chain! {
@@ -19,85 +15,6 @@ error_chain! {
         Glob(glob::GlobError);
         Pattern(glob::PatternError);
     }
-}
-
-#[derive(Deserialize)]
-struct AutosuggestRequest {
-    prefix: String,
-}
-
-#[derive(Serialize)]
-struct AutosuggestResponse {
-    suggestions: Vec<String>,
-}
-
-struct AppState {
-    index: Index,
-    query_parser: QueryParser,
-}
-async fn autosuggest(
-    data: web::Data<AppState>,
-    query: web::Query<AutosuggestRequest>,
-) -> HttpResponse {
-    let searcher = data.index.reader().unwrap().searcher();
-    let query = data
-        .query_parser
-        .parse_query(&format!("{:?}", query.prefix))
-        .unwrap();
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(10)).unwrap();
-
-    let body_field = data.index.schema().get_field("body").unwrap();
-    let mut suggestions = Vec::new();
-
-    // Create a snippet generator
-    let tokenizer = TokenizerManager::default().get("default").unwrap();
-    let snippet_generator = SnippetGenerator::create(&searcher, &query, body_field).unwrap();
-
-    for (_score, doc_address) in top_docs {
-        let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
-        let body_content = retrieved_doc
-            .get_first(body_field)
-            .unwrap()
-            .as_str()
-            .unwrap();
-
-        // Generate snippet
-        let temp_doc = doc!(body_field => body_content);
-
-        let snippet = snippet_generator.snippet_from_doc(&temp_doc);
-        let formatted_snippet = format_snippet(&snippet, 5); // 5 words before and after the highlighted term
-
-        suggestions.push(formatted_snippet);
-    }
-
-    HttpResponse::Ok().json(AutosuggestResponse { suggestions })
-}
-
-// Helper function to format the snippet
-fn format_snippet(snippet: &Snippet, context_size: usize) -> String {
-    let mut result = String::new();
-    let fragment = snippet.fragment();
-
-    //for fragment in fragments {
-    //let highlighted = snippet.highlighted();
-    //let text = fragment.text();
-
-    //if highlighted {
-    //  result.push_str(&format!("<b>{}</b>", text));
-    //} else {
-    let words: Vec<&str> = fragment.split_whitespace().collect();
-    let context: String = words
-        .iter()
-        .take(context_size)
-        .chain(std::iter::once(&"..."))
-        .chain(words.iter().rev().take(context_size).rev())
-        .cloned()
-        .collect();
-    result.push_str(&context);
-    // }
-    //}
-
-    result
 }
 
 #[actix_web::main]
@@ -136,7 +53,7 @@ async fn main() -> std::io::Result<()> {
 
     // Only index PDFs if the index is newly created
 
-    println!("Searching");
+    println!("Search is ready\ntry curl https://localhost:8080/autosuggest?prefix=test\n");
     let reader = index
         .reader_builder()
         .reload_policy(ReloadPolicy::OnCommitWithDelay)
@@ -147,39 +64,20 @@ async fn main() -> std::io::Result<()> {
 
     let query_parser = QueryParser::for_index(&index, vec![title, body]);
 
-    // let query = query_parser.parse_query("linux")?;
-
-    // let top_docs = searcher.search(&query, &TopDocs::with_limit(10))?;
-    // for (_score, doc_address) in top_docs {
-    //     let _retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-    //     //   println!("{:<10}", retrieved_doc.to_json(&schema));
-    // }
-
-    //let query = query_parser.parse_query("title:timeseries^20 body:median^70")?;
-
-    // let search_results = searcher.search(&query, &TopDocs::with_limit(1))?;
-
-    // if let Some((_score, doc_address)) = search_results.into_iter().next() {
-    //     let explanation = query.explain(&searcher, doc_address)?;
-    //     println!("{}", explanation.to_pretty_json());
-    // } else {
-    //     println!("No results found for the given query.");
-    // }
-
-    let app_state = web::Data::new(AppState {
+    let app_state = web::Data::new(crate::autosuggest::AppState {
         index,
         query_parser,
     });
 
     HttpServer::new(move || {
-        App::new()
-            .app_data(app_state.clone())
-            .route("/autosuggest", web::get().to(autosuggest))
+        App::new().app_data(app_state.clone()).route(
+            "/autosuggest",
+            web::get().to(crate::autosuggest::autosuggest),
+        )
     })
     .bind("127.0.0.1:8080")?
     .run()
     .await
-    //    Ok(())
 }
 
 fn index_all_pdfs(
@@ -206,23 +104,21 @@ fn index_all_pdfs(
                         let _ = index_writer.add_document(le_doc);
 
                         let _ = index_writer.commit();
-                        //return Ok("Parsed".into());
                     }
                     Err(e) => {
                         println!("Error Parsing {:?}", e);
-                        //return Err(e);
                     }
                 }
                 // parse
             }
-            Err(_e) => {
-                //println!("Error {}", e);
-                ()
+            Err(e) => {
+                //println!("Error {:?}", e);
+                //()
             }
         }
     }
 
-    return Ok("Done".into());
+    Ok("Done".into())
 }
 
 fn parse_pdf(file: PathBuf) -> Result<Vec<String>> {
@@ -237,12 +133,11 @@ fn parse_pdf(file: PathBuf) -> Result<Vec<String>> {
                 texts.push(text.unwrap_or_default());
             }
 
-            //println!("Text on page {}: {}", 42, texts[41]);
             Ok(texts)
         }
         Err(e) => {
             println!("Error: {}", e);
-            return Err("erro".into());
+            Err("erro".into())
         }
     }
 }
