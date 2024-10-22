@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
+use tantivy::tokenizer::TokenizerManager;
+use tantivy::Snippet;
+use tantivy::SnippetGenerator;
+
 use tantivy::{doc, Index, IndexWriter, ReloadPolicy};
 
 error_chain! {
@@ -31,7 +35,6 @@ struct AppState {
     index: Index,
     query_parser: QueryParser,
 }
-
 async fn autosuggest(
     data: web::Data<AppState>,
     query: web::Query<AutosuggestRequest>,
@@ -43,29 +46,58 @@ async fn autosuggest(
         .unwrap();
     let top_docs = searcher.search(&query, &TopDocs::with_limit(10)).unwrap();
 
-    let term_field = data.index.schema().get_field("body").unwrap();
-    let mut suggestions = Vec::new();
     let body_field = data.index.schema().get_field("body").unwrap();
+    let mut suggestions = Vec::new();
+
+    // Create a snippet generator
+    let tokenizer = TokenizerManager::default().get("default").unwrap();
+    let snippet_generator = SnippetGenerator::create(&searcher, &query, body_field).unwrap();
+
     for (_score, doc_address) in top_docs {
-        // let retrieved_doc: String = searcher.doc(doc_address).unwrap();
-        // if let Some(term) = retrieved_doc.get_first(term_field) {
-        //     suggestions.push(term.as_text().unwrap().to_string());
-        // }
-        //if let Some((_score, doc_address)) = &top_docs.into_iter().next() {
-        let explanation = query.explain(&searcher, doc_address.clone());
-        println!("{}", explanation.unwrap().to_pretty_json());
-        suggestions.push(format!(
-            "{:?}",
-            searcher
-                .doc::<TantivyDocument>(doc_address)
-                .unwrap()
-                .get_first(body_field)
-                .unwrap()
-                .as_str(),
-        ));
+        let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
+        let body_content = retrieved_doc
+            .get_first(body_field)
+            .unwrap()
+            .as_str()
+            .unwrap();
+
+        // Generate snippet
+        let temp_doc = doc!(body_field => body_content);
+
+        let snippet = snippet_generator.snippet_from_doc(&temp_doc);
+        let formatted_snippet = format_snippet(&snippet, 5); // 5 words before and after the highlighted term
+
+        suggestions.push(formatted_snippet);
     }
 
     HttpResponse::Ok().json(AutosuggestResponse { suggestions })
+}
+
+// Helper function to format the snippet
+fn format_snippet(snippet: &Snippet, context_size: usize) -> String {
+    let mut result = String::new();
+    let fragment = snippet.fragment();
+
+    //for fragment in fragments {
+    //let highlighted = snippet.highlighted();
+    //let text = fragment.text();
+
+    //if highlighted {
+    //  result.push_str(&format!("<b>{}</b>", text));
+    //} else {
+    let words: Vec<&str> = fragment.split_whitespace().collect();
+    let context: String = words
+        .iter()
+        .take(context_size)
+        .chain(std::iter::once(&"..."))
+        .chain(words.iter().rev().take(context_size).rev())
+        .cloned()
+        .collect();
+    result.push_str(&context);
+    // }
+    //}
+
+    result
 }
 
 #[actix_web::main]
@@ -111,7 +143,7 @@ async fn main() -> std::io::Result<()> {
         .try_into()
         .unwrap();
 
-    let searcher = reader.searcher();
+    let _searcher = reader.searcher();
 
     let query_parser = QueryParser::for_index(&index, vec![title, body]);
 
