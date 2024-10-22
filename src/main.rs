@@ -111,7 +111,7 @@ fn index_all_pdfs(
                 }
                 // parse
             }
-            Err(e) => {
+            Err(_e) => {
                 //println!("Error {:?}", e);
                 //()
             }
