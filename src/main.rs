@@ -1,6 +1,7 @@
 use actix_web::{web, App, HttpServer};
 use error_chain::error_chain;
 use glob::{glob_with, MatchOptions};
+use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -24,6 +25,8 @@ async fn main() -> std::io::Result<()> {
     schema_builder.add_text_field("title", TEXT | STORED);
     schema_builder.add_text_field("body", TEXT | STORED);
     let schema = schema_builder.build();
+    let port = env::var("PORT").unwrap_or("8080".to_string());
+    let addr = format!("127.0.0.1:{}", port);
 
     // Check if the index already exists
     let index = if Path::new(&index_path).exists() {
@@ -75,7 +78,7 @@ async fn main() -> std::io::Result<()> {
             web::get().to(crate::autosuggest::autosuggest),
         )
     })
-    .bind("127.0.0.1:8080")?
+    .bind(addr)?
     .run()
     .await
 }
