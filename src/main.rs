@@ -38,7 +38,21 @@ async fn main() -> std::io::Result<()> {
         Index::create_in_dir(&index_path, schema.clone()).unwrap()
     };
 
-    let mut index_writer: IndexWriter = index.writer(50_000_000).unwrap();
+    let mut index_writer: IndexWriter = match index.writer(50_000_000) {
+        Ok(writer) => writer,
+        Err(e) => {
+            println!("Failed to create index writer. Attempting to delete lock file...");
+            // Remove the lock file
+            let lock_path = index_path.join("write.lock");
+            if lock_path.exists() {
+                fs::remove_file(lock_path)?;
+                // Try creating the writer again
+                index.writer(50_000_000).unwrap()
+            } else {
+                panic!("Failed to create index writer: {}", e);
+            }
+        }
+    };
 
     let title = schema.get_field("title").unwrap();
     let body = schema.get_field("body").unwrap();
@@ -71,6 +85,7 @@ async fn main() -> std::io::Result<()> {
         index,
         query_parser,
     });
+    println!("Listening on {}", addr);
 
     HttpServer::new(move || {
         App::new().app_data(app_state.clone()).route(
