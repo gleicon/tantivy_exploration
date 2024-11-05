@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
         Err(e) => {
             println!("Failed to create index writer. Attempting to delete lock file...");
             // Remove the lock file
-            let lock_path = index_path.join("write.lock");
+            let lock_path = index_path.join(".tantivy-writer.lock");
             if lock_path.exists() {
                 fs::remove_file(lock_path)?;
                 // Try creating the writer again
