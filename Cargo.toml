@@ -10,3 +10,6 @@ lopdf = { version = "0.33.0", features = ["pom", "pom_parser"] }
 pdf-extract = "0.7.7"
 tantivy = "0.22.0"
 tempfile = "3.12.0"
+actix-web = "4.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
